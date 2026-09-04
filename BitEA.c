@@ -7,6 +7,10 @@
 #include "stdgraph.h"
 
 
+// Global array holding each vertex's degree (edge count).
+// Size is graph_size, allocated/filled at the start of BitEA()
+// and freed before it returns.
+int *degrees = NULL;
 
 int BitEA(
     int graph_size, 
@@ -20,6 +24,12 @@ int BitEA(
     float *best_solution_time,
     int *uncolored_num
 ) {
+    // Fill the global degree array (one entry per vertex).
+    /**/
+    degrees = malloc(graph_size * sizeof(int));
+    count_edges(graph_size, edges, degrees);
+    
+
     // Create the random population.
     block_t *population[population_size];
     int color_count[population_size];
@@ -114,6 +124,9 @@ int BitEA(
     free(child);
     for(int i = 0; i < population_size; i++)
         free(population[i]);
+    /**/
+    free(degrees);
+    degrees = NULL;
 
     return color_count[best_i];
 }
@@ -143,6 +156,133 @@ int get_rand_color(int max_color_num, int colors_used, block_t used_color_list[]
         }
     }
 }
+// not used
+int condition1(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+
+    int mult_worst = conflict_worst * weight_worst;
+    int mult_i = conflict_i * weight_i;
+
+    return (mult_worst < mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition2(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+
+    int mult_worst = conflict_worst * weight_worst;
+    int mult_i = conflict_i * weight_i;
+
+    return (mult_worst > mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition3(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+    
+    double divide_worst = conflict_worst / (double) weight_worst;
+    double divide_i = conflict_i / (double) weight_i;
+    
+    return (divide_worst < divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+//
+int condition4(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+        
+    return (weight_worst < weight_i ||
+                    (weight_worst == weight_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition5(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+    
+    double divide_worst = weight_worst / (double) conflict_worst;
+    double divide_i = weight_i / (double) conflict_i ;
+    
+    return (divide_worst > divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition6(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+    
+    double divide_worst = weight_worst * weight_worst / (double) conflict_worst;
+    double divide_i = weight_i * weight_i / (double) conflict_i ;
+    
+    return (divide_worst > divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition7(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    double divide_worst = weight_worst * weight_worst / (double)(conflict_worst * degree_worst) ;
+    double divide_i = weight_i * weight_i / (double) (conflict_i * degree_i) ;
+    
+    return (divide_worst > divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+//  max weight * degree
+int condition8(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    int mult_worst = weight_worst * degree_worst;
+    int mult_i = weight_i * degree_i;
+    
+    return (mult_worst < mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition9(int conflict_worst,int degree_worst, int conflict_i,int degree_i){
+    
+    int mult_worst = conflict_worst * degree_worst;
+    int mult_i = conflict_i * degree_i;
+    
+    return (mult_worst < mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+//  min weight * degree
+int condition10(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    int mult_worst = weight_worst * degree_worst;
+    int mult_i = weight_i * degree_i;
+    
+    return (mult_worst > mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+//  min weight * degree * conflict
+int condition11(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    int mult_worst = weight_worst * degree_worst * conflict_worst;
+    int mult_i = weight_i * degree_i * conflict_i;
+    
+    return (mult_worst > mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+/* vertices degree: vertice bağlı olduğu diğer vertice sayısı
+degree array oluştur
+condition7: minimum weight * weight / (degree * conflict)
+condition8: maximum weight*degree
+condition9: max conflict * degree
+eşit olasılık
+*/
 
 void fix_conflicts(
     int graph_size,
@@ -152,22 +292,53 @@ void fix_conflicts(
     int *total_conflicts,
     block_t *color,
     block_t *pool,
-    int *pool_total
+    int *pool_total,
+    int decision_criteria
 ) {
     block_t (*edges_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])edges;
-
+    // There is 7 conditions
+    decision_criteria = decision_criteria % 4;
     // Keep removing problematic vertices until all conflicts are gone.
     int i, worst_vert = 0, vert_block;
     block_t vert_mask;
     while(*total_conflicts > 0) {
         // Find the vertex with the most conflicts.
         for(i = 0; i < graph_size; i++) {
-            if (CHECK_COLOR(color, i) &&
-                (conflict_count[worst_vert] < conflict_count[i] ||
+
+            if (CHECK_COLOR(color, i)){
+                /*
+                if (decision_criteria ==1 && 
+                  condition11(conflict_count[worst_vert],weights[worst_vert],degrees[worst_vert],conflict_count[i], weights[i],degrees[i])){
+                    worst_vert = i;
+                } else*/
+                 if (decision_criteria == 1 && 
+                  condition2(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
+                        worst_vert = i;
+                    }
+                else if(decision_criteria == 2 && 
+                  condition3(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
+                        worst_vert = i;
+                    }/*
+                else if(decision_criteria == 3 && 
+                  condition11(conflict_count[worst_vert],weights[worst_vert],degrees[worst_vert], conflict_count[i], weights[i],degrees[i])){
+                        worst_vert = i;
+                    }
+                else if(decision_criteria == 5 && 
+                  condition8(conflict_count[worst_vert],weights[worst_vert],degrees[worst_vert], conflict_count[i], weights[i],degrees[i])){
+                        worst_vert = i;
+                    }
+                else if(decision_criteria < 40 && 
+                  condition3(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
+                        worst_vert = i;
+                    }*/
+                // old condition
+                else if ((conflict_count[worst_vert] < conflict_count[i] ||
                  (conflict_count[worst_vert] == conflict_count[i] && 
                   (weights[worst_vert] > weights[i] || (weights[worst_vert] == weights[i] && rand()%2))))) {
-                worst_vert = i;
+                    worst_vert = i;
+                } 
             }
+
         }
 
         // Update other conflict counters.
@@ -243,6 +414,9 @@ void merge_and_fix(
         conflict_count
     );
 
+    //
+    int decision_criteria = rand();
+
     // Fix the conflicts.
     fix_conflicts(
         graph_size,
@@ -252,7 +426,8 @@ void merge_and_fix(
         &total_conflicts,
         child_color,
         pool,
-        pool_count
+        pool_count,
+        decision_criteria
     );
 }
 
