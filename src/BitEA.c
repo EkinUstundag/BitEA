@@ -7,6 +7,17 @@
 #include "stdgraph.h"
 
 
+// Global array holding each vertex's degree (edge count).
+// Size is graph_size, allocated/filled at the start of BitEA()
+// and freed before it returns.
+// Global arrays holding vertex data
+int *degrees = NULL;
+int *sorted_by_weight = NULL;
+
+// Descending sort comparator
+int comp_weight_desc(const void* a, const void* b, void* weights) {
+    return (((int*)weights)[*(int*)b]) - (((int*)weights)[*(int*)a]);
+}
 
 int BitEA(
     int graph_size, 
@@ -20,43 +31,48 @@ int BitEA(
     float *best_solution_time,
     int *uncolored_num
 ) {
+    // Fill the global degree array
+    degrees = malloc(graph_size * sizeof(int));
+    count_edges(graph_size, edges, degrees);
+
+    // Fill the global sorted weights array
+    sorted_by_weight = malloc(graph_size * sizeof(int));
+    for(int i = 0; i < graph_size; i++) sorted_by_weight[i] = i;
+    qsort_r(sorted_by_weight, graph_size, sizeof(int), comp_weight_desc, (void*)weights);
+
     // Create the random population.
     block_t *population[population_size];
     int color_count[population_size];
     int uncolored[population_size];
     int fitness[population_size];
+    
     for (int i = 0; i < population_size; i++) {
         population[i] = calloc(base_color_count * TOTAL_BLOCK_NUM((size_t)graph_size), sizeof(block_t));
         uncolored[i] = base_color_count;
         color_count[i] = base_color_count;
-        fitness[i] = __INT_MAX__;
+        // Leave initial fitness at __INT_MAX__. The greedy random starts often have conflicts.
+        // We want the EA to immediately replace them with valid children from crossover.
+        fitness[i] = __INT_MAX__; 
     }
 
     pop_complex_random(
-        graph_size,
-        edges,
-        weights,
-        population_size,
-        population,
-        base_color_count
+        graph_size, edges, weights,
+        population_size, population, base_color_count
     );
-
 
     struct timeval t1, t2;
     *best_solution_time = 0;
     gettimeofday(&t1, NULL);
 
     block_t *child = malloc(base_color_count * TOTAL_BLOCK_NUM(graph_size) * sizeof(block_t));
+    
     int best_i = 0;
-    int target_color = base_color_count;
+    int target_color = base_color_count; 
     int temp_uncolored;
     int parent1, parent2, child_colors, temp_fitness;
     int bad_parent;
+    
     for(int i = 0; i < max_gen_num; i++) {
-        if(target_color == 0)
-            break;
-
-        // Initialize the child
         memset(child, 0, (TOTAL_BLOCK_NUM(graph_size))*base_color_count*sizeof(block_t));
 
         // Pick 2 random parents
@@ -65,48 +81,41 @@ int BitEA(
 
         // Do a crossover
         temp_fitness = crossover (
-            graph_size, 
-            edges, 
-            weights,
-            color_count[parent1], 
-            color_count[parent2], 
-            population[parent1], 
-            population[parent2], 
-            target_color,
-            child, 
-            &child_colors,
-            &temp_uncolored
+            graph_size, edges, weights,
+            color_count[parent1], color_count[parent2], 
+            population[parent1], population[parent2], 
+            target_color, child, &child_colors, &temp_uncolored
         );
 
-        // Choose the bad parent.
-        if(fitness[parent1] <= fitness[parent2] && color_count[parent1] <= color_count[parent2])
-            bad_parent = parent2;
-        else
-            bad_parent = parent1;
+        // THE FIX: Massive Penalty for Conflicts
+        // If crossover had to randomly allocate vertices (temp_uncolored > 0), it created conflicts.
+        // We add a massive penalty so the EA aggressively filters out invalid solutions.
+        int effective_fitness = temp_fitness;
+        if (temp_uncolored > 0) {
+            effective_fitness += (temp_uncolored * 1000000);
+        }
 
-        // Replace the bad parent if needed.
-        if(child_colors <= color_count[bad_parent] && temp_fitness <= fitness[bad_parent]) {
+        // Choose the worse parent based purely on effective fitness
+        bad_parent = (fitness[parent1] > fitness[parent2]) ? parent1 : parent2;
+
+        // Replace if the child has a better or equal penalized cost
+        if(effective_fitness <= fitness[bad_parent]) {
             memmove(population[bad_parent], child, (TOTAL_BLOCK_NUM(graph_size))*base_color_count*sizeof(block_t));
             color_count[bad_parent] = child_colors;
-            fitness[bad_parent] = temp_fitness;
+            fitness[bad_parent] = effective_fitness;
             uncolored[bad_parent] = temp_uncolored;
 
-            if (temp_fitness < fitness[best_i] ||
-                (temp_fitness == fitness[best_i] && child_colors < color_count[best_i])
-            ) {
+            // Track global best (first valid child will easily beat __INT_MAX__)
+            if (effective_fitness < fitness[best_i] || fitness[best_i] == __INT_MAX__) {
                 best_i = bad_parent;
                 gettimeofday(&t2, NULL);
                 *best_solution_time = (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000000.0;   // us to ms
             }
         }
-
-        // Make the target harder if it was found.
-        if(temp_fitness == 0)
-            target_color = child_colors - 1;
     }
 
-    // Return the best solution
-    *best_fitness = fitness[best_i];
+    // Return the actual raw cost (removing the penalty for reporting purposes)
+    *best_fitness = fitness[best_i] >= 1000000 ? fitness[best_i] - (uncolored[best_i] * 1000000) : fitness[best_i];
     *uncolored_num = uncolored[best_i];
     memcpy(best_solution, population[best_i], base_color_count * (TOTAL_BLOCK_NUM(graph_size)) * sizeof(block_t));
 
@@ -114,6 +123,11 @@ int BitEA(
     free(child);
     for(int i = 0; i < population_size; i++)
         free(population[i]);
+        
+    free(degrees);
+    degrees = NULL;
+    free(sorted_by_weight);
+    sorted_by_weight = NULL;
 
     return color_count[best_i];
 }
@@ -143,6 +157,133 @@ int get_rand_color(int max_color_num, int colors_used, block_t used_color_list[]
         }
     }
 }
+// not used
+int condition1(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+
+    int mult_worst = conflict_worst * weight_worst;
+    int mult_i = conflict_i * weight_i;
+
+    return (mult_worst < mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition2(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+
+    int mult_worst = conflict_worst * weight_worst;
+    int mult_i = conflict_i * weight_i;
+
+    return (mult_worst > mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition3(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+    
+    double divide_worst = conflict_worst / (double) weight_worst;
+    double divide_i = conflict_i / (double) weight_i;
+    
+    return (divide_worst < divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+//
+int condition4(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+        
+    return (weight_worst < weight_i ||
+                    (weight_worst == weight_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition5(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+    
+    double divide_worst = weight_worst / (double) conflict_worst;
+    double divide_i = weight_i / (double) conflict_i ;
+    
+    return (divide_worst > divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition6(int conflict_worst, int weight_worst, int conflict_i, int weight_i){
+    
+    double divide_worst = weight_worst * weight_worst / (double) conflict_worst;
+    double divide_i = weight_i * weight_i / (double) conflict_i ;
+    
+    return (divide_worst > divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition7(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    double divide_worst = weight_worst * weight_worst / (double)(conflict_worst * degree_worst) ;
+    double divide_i = weight_i * weight_i / (double) (conflict_i * degree_i) ;
+    
+    return (divide_worst > divide_i ||
+                    (divide_worst == divide_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+//  max weight * degree
+int condition8(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    int mult_worst = weight_worst * degree_worst;
+    int mult_i = weight_i * degree_i;
+    
+    return (mult_worst < mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+int condition9(int conflict_worst,int degree_worst, int conflict_i,int degree_i){
+    
+    int mult_worst = conflict_worst * degree_worst;
+    int mult_i = conflict_i * degree_i;
+    
+    return (mult_worst < mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+//  min weight * degree
+int condition10(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    int mult_worst = weight_worst * degree_worst;
+    int mult_i = weight_i * degree_i;
+    
+    return (mult_worst > mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+//  min weight * degree * conflict
+int condition11(int conflict_worst, int weight_worst,int degree_worst, int conflict_i, int weight_i,int degree_i){
+    
+    int mult_worst = weight_worst * degree_worst * conflict_worst;
+    int mult_i = weight_i * degree_i * conflict_i;
+    
+    return (mult_worst > mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
+/* vertices degree: vertice bağlı olduğu diğer vertice sayısı
+degree array oluştur
+condition7: minimum weight * weight / (degree * conflict)
+condition8: maximum weight*degree
+condition9: max conflict * degree
+eşit olasılık
+*/
 
 void fix_conflicts(
     int graph_size,
@@ -152,37 +293,70 @@ void fix_conflicts(
     int *total_conflicts,
     block_t *color,
     block_t *pool,
-    int *pool_total
+    int *pool_total,
+    int decision_criteria // Kept to avoid changing the function signature in merge_and_fix
 ) {
     block_t (*edges_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])edges;
-
-    // Keep removing problematic vertices until all conflicts are gone.
-    int i, worst_vert = 0, vert_block;
+    
+    int i, worst_vert, vert_block;
     block_t vert_mask;
+
     while(*total_conflicts > 0) {
-        // Find the vertex with the most conflicts.
+        worst_vert = -1;
+
+        // Find the most problematic vertex to remove
         for(i = 0; i < graph_size; i++) {
-            if (CHECK_COLOR(color, i) &&
-                (conflict_count[worst_vert] < conflict_count[i] ||
-                 (conflict_count[worst_vert] == conflict_count[i] && 
-                  (weights[worst_vert] > weights[i] || (weights[worst_vert] == weights[i] && rand()%2))))) {
-                worst_vert = i;
+            // Only evaluate vertices currently in this color that actively contribute to conflicts
+            if (CHECK_COLOR(color, i) && conflict_count[i] > 0) {
+                if (worst_vert == -1) {
+                    worst_vert = i;
+                } else {
+                    // Score formula: Conflicts resolved / Weight penalty incurred
+                    // A higher score means it's a better candidate to be sent to the pool.
+                    double weight_worst_safe = weights[worst_vert] > 0 ? weights[worst_vert] : 1;
+                    double weight_i_safe = weights[i] > 0 ? weights[i] : 1;
+                    
+                    double score_worst = (double)conflict_count[worst_vert] / weight_worst_safe;
+                    double score_i = (double)conflict_count[i] / weight_i_safe;
+
+                    if (score_i > score_worst) {
+                        worst_vert = i;
+                    } else if (score_i == score_worst) {
+                        // Tie-breaker 1: Remove the lighter vertex
+                        if (weights[i] < weights[worst_vert]) {
+                            worst_vert = i;
+                        } 
+                        // Tie-breaker 2: Remove vertex with lower overall degree (easier to color later)
+                        else if (weights[i] == weights[worst_vert] && degrees[i] < degrees[worst_vert]) {
+                            worst_vert = i;
+                        }
+                        // Tie-breaker 3: Random choice for stochastic diversity
+                        else if (weights[i] == weights[worst_vert] && degrees[i] == degrees[worst_vert] && (rand() % 2)) {
+                            worst_vert = i;
+                        }
+                    }
+                }
             }
         }
 
-        // Update other conflict counters.
+        // Safety break to prevent infinite loops if total_conflicts gets out of sync
+        if (worst_vert == -1) break; 
+
+        // Update other conflict counters
         vert_mask = MASK(worst_vert);
         vert_block = BLOCK_INDEX(worst_vert);
-        for(i = 0; i < graph_size; i++)
-            if(CHECK_COLOR(color, i) && ((*edges_p)[i][vert_block] & vert_mask))
+        for(i = 0; i < graph_size; i++) {
+            if(CHECK_COLOR(color, i) && ((*edges_p)[i][vert_block] & vert_mask)) {
                 conflict_count[i]--;
+            }
+        }
 
-        // Remove the vertex.
+        // Remove the chosen vertex from the color class and drop it in the pool
         color[vert_block] &= ~vert_mask;
         pool[vert_block] |= vert_mask;
         (*pool_total)++;
 
-        // Update the total number of conflicts.
+        // Update the total number of conflicts
         (*total_conflicts) -= conflict_count[worst_vert];
         conflict_count[worst_vert] = 0;
     }
@@ -243,6 +417,9 @@ void merge_and_fix(
         conflict_count
     );
 
+    //
+    int decision_criteria = rand();
+
     // Fix the conflicts.
     fix_conflicts(
         graph_size,
@@ -252,7 +429,8 @@ void merge_and_fix(
         &total_conflicts,
         child_color,
         pool,
-        pool_count
+        pool_count,
+        decision_criteria
     );
 }
 
@@ -270,47 +448,88 @@ void search_back(
 
     int conflict_count, last_conflict, last_conflict_block = 0;
     block_t i_mask, temp_mask, last_conflict_mask = 0;
-    int i, j, k, i_block;
+    int i, j, k, i_block, v;
 
-    // Search back and try placing vertices from the pool in previous colors.
-    for(i = 0; i < graph_size && (*pool_count) > 0; i++) {
+    // Calculate max weight for each color class to optimize WVCP insertions
+    int color_max_weight[color_count];
+    memset(color_max_weight, 0, color_count * sizeof(int));
+    for(j = 0; j < color_count; j++) {
+        for(k = 0; k < graph_size; k++) {
+            if(CHECK_COLOR((*child_p)[j], k) && weights[k] > color_max_weight[j])
+                color_max_weight[j] = weights[k];
+        }
+    }
+
+    // Search back and try placing vertices from the pool. 
+    // Loop over vertices in DECREASING order of weight!
+    for(v = 0; v < graph_size && (*pool_count) > 0; v++) {
+        i = sorted_by_weight != NULL ? sorted_by_weight[v] : v; 
         i_block = BLOCK_INDEX(i);
         i_mask = MASK(i);
 
         // Check if the vertex is in the pool.
         if(pool[i_block] & i_mask) {
-            // Loop through every previous color.
+            
+            int best_color = -1;
+            int best_cost_diff = __INT_MAX__;
+            int best_conflict_count = -1;
+            int best_last_conflict = -1;
+            int best_last_conflict_block = -1;
+            block_t best_last_conflict_mask = 0;
+
+            // Loop through every previous color to find the cheapest insertion
             for(j = 0; j < color_count; j++) {
-                // Count the possible conflicts in this color.
                 conflict_count = 0;
                 for(k = 0; k < TOTAL_BLOCK_NUM(graph_size); k++) {
                     temp_mask = (*child_p)[j][k] & (*edges_p)[i][k];
                     if(temp_mask) {
                         conflict_count += popcountl(temp_mask);
-                        if(conflict_count > 1)
-                            break;
+                        if(conflict_count > 1) break;
                         last_conflict = sizeof(block_t)*8*(k + 1) - 1 - __builtin_clzl(temp_mask);
                         last_conflict_mask = temp_mask;
                         last_conflict_block = k;
                     }
                 }
 
-                // Place immediately if there are no conflicts.
                 if(conflict_count == 0) {
-                    (*child_p)[j][i_block] |= i_mask;
+                    // Cost increase is 0 if vertex is lighter than the class max
+                    int cost_diff = weights[i] > color_max_weight[j] ? weights[i] - color_max_weight[j] : 0;
+                    if (cost_diff < best_cost_diff || (cost_diff == best_cost_diff && best_conflict_count == 1)) {
+                        best_cost_diff = cost_diff;
+                        best_color = j;
+                        best_conflict_count = 0;
+                        if (cost_diff == 0) break; // Perfect match found, stop searching
+                    }
+                } 
+                else if (conflict_count == 1 && weights[last_conflict] < weights[i]) {
+                    int cost_diff = weights[i] > color_max_weight[j] ? weights[i] - color_max_weight[j] : 0;
+                    if (cost_diff < best_cost_diff && best_conflict_count != 0) {
+                        best_cost_diff = cost_diff;
+                        best_color = j;
+                        best_conflict_count = 1;
+                        best_last_conflict = last_conflict;
+                        best_last_conflict_block = last_conflict_block;
+                        best_last_conflict_mask = last_conflict_mask;
+                    }
+                }
+            }
+
+            // Execute the best move
+            if (best_color != -1) {
+                if (best_conflict_count == 0) {
+                    (*child_p)[best_color][i_block] |= i_mask;
                     pool[i_block] &= ~i_mask;
                     (*pool_count)--;
-                    break;
-
-                // If only 1 conflict exists and its weight is smaller
-                // than that of the vertex in question, replace it.
-                } else if (conflict_count == 1 && weights[last_conflict] < weights[i]) {
-                    (*child_p)[j][i_block] |= i_mask;
+                    if (weights[i] > color_max_weight[best_color]) 
+                        color_max_weight[best_color] = weights[i];
+                } else if (best_conflict_count == 1) {
+                    (*child_p)[best_color][i_block] |= i_mask;
                     pool[i_block] &= ~i_mask;
-
-                    (*child_p)[j][last_conflict_block] &= ~last_conflict_mask;
-                    pool[last_conflict_block] |= last_conflict_mask;
-                    break;
+                    
+                    (*child_p)[best_color][best_last_conflict_block] &= ~best_last_conflict_mask;
+                    pool[best_last_conflict_block] |= best_last_conflict_mask;
+                    if (weights[i] > color_max_weight[best_color]) 
+                        color_max_weight[best_color] = weights[i];
                 }
             }
         }
@@ -329,22 +548,20 @@ void local_search(
     block_t (*edges_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])edges;
     block_t (*child_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])child;
 
-    int i, j, k, h, i_block;
+    int i, j, k, h, i_block, v;
     block_t i_mask, temp_mask;
     int competition;
     int conflict_count;
     block_t conflict_array[TOTAL_BLOCK_NUM(graph_size)];
 
-    // Search back and try placing vertices from the pool in the colors.
-    for(i = 0; i < graph_size && (*pool_count) > 0; i++) {
+    // Process vertices in DECREASING order of weight
+    for(v = 0; v < graph_size && (*pool_count) > 0; v++) {
+        i = sorted_by_weight != NULL ? sorted_by_weight[v] : v;
         i_block = BLOCK_INDEX(i);
         i_mask = MASK(i);
 
-        // Check if the vertex is in the pool.
         if(pool[i_block] & i_mask) {
-            // Loop through every color.
             for(j = 0; j < color_count; j++) {  
-                // Count conflicts and calculate competition
                 conflict_count = 0;
                 competition = 0;
                 for(k = 0; k < TOTAL_BLOCK_NUM(graph_size); k++) {
@@ -358,18 +575,11 @@ void local_search(
                     }
                 }
 
-                // Place immediately if there are no conflicts.
                 if(competition == 0) {
                     (*child_p)[j][i_block] |= i_mask;
                     pool[i_block] &= ~i_mask;
                     (*pool_count) += conflict_count - 1;
                     break;
-
-                /**
-                 * If the total competition is smaller than the weight
-                 * of the vertex in question, move all the conflicts to the 
-                 * pool, and place the vertex in the color.
-                */
                 } else if(competition < weights[i]) {
                     for(k = 0; k < TOTAL_BLOCK_NUM(graph_size); k++) {
                         (*child_p)[j][k] &= ~conflict_array[k];
@@ -469,7 +679,7 @@ int crossover (
     if(used_vertex_count < graph_size) {
         for(j = 0; j < (TOTAL_BLOCK_NUM(graph_size)); j++)
             pool[j] |= ~used_vertex_list[j];
-        pool[TOTAL_BLOCK_NUM(graph_size)] &= ((0xFFFFFFFFFFFFFFFF) >> (TOTAL_BLOCK_NUM(graph_size)*sizeof(block_t)*8 - graph_size));
+        pool[TOTAL_BLOCK_NUM(graph_size) - 1] &= ((0xFFFFFFFFFFFFFFFF) >> (TOTAL_BLOCK_NUM(graph_size)*sizeof(block_t)*8 - graph_size));
 
         pool_count += (graph_size - used_vertex_count);
         used_vertex_count = graph_size;
@@ -486,7 +696,7 @@ int crossover (
         &pool_count
     );
 
-    // If the pool is not empty, randomly allocate the remaining vertices in the colors.
+// If the pool is not empty, randomly allocate the remaining vertices in the colors.
     int fitness = 0, temp_block;
     block_t temp_mask;
     if(pool_count > 0) {
@@ -500,14 +710,20 @@ int crossover (
 
                 if(color_num + 1 > last_color)
                     last_color = color_num + 1;
-
-                fitness += weights[i];
             }
         }
+    }
 
-    // All of the vertices were allocated and no conflicts were detected.
-    } else {
-        fitness = 0;
+    // Weighted Vertex Coloring Problem fitness: sum, over every color class
+    // actually in use, of the heaviest vertex assigned to that class.
+    int color_max_weight;
+    for(i = 0; i < last_color; i++) {
+        color_max_weight = 0;
+        for(j = 0; j < graph_size; j++) {
+            if(CHECK_COLOR((*child_p)[i], j) && weights[j] > color_max_weight)
+                color_max_weight = weights[j];
+        }
+        fitness += color_max_weight;
     }
 
     *uncolored = pool_count;
