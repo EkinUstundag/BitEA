@@ -68,7 +68,7 @@ void test_graph(void *param, int *best_result) {
 
     float temp_time;
     int temp_fitness, temp_color_count, temp_uncolored;
-    block_t *temp_colors = calloc(max_edge_count, TOTAL_BLOCK_NUM(size)*sizeof(block_t));
+    block_t *temp_colors = calloc(target_color, TOTAL_BLOCK_NUM(size)*sizeof(block_t));
 
     struct timeval t1, t2;
     float total_execution_time = 0;
@@ -88,8 +88,8 @@ void test_graph(void *param, int *best_result) {
     );
     gettimeofday(&t2, NULL);
     total_execution_time += (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000000.0;
-
-    if(temp_fitness == 0)
+// Weighted Coloring fitness can not be 0 this should be changed
+    //if(temp_fitness == 0)
         is_valid(size, edges, temp_color_count, temp_colors);
 
     printf(
@@ -102,9 +102,9 @@ void test_graph(void *param, int *best_result) {
         temp_uncolored,
         total_execution_time
     );
-
+//Ekin updated to csv format
     fprintf(((struct test_param*)param)->summary_file,
-        "|%s|%3d|%10.6lf|%3d|%5d|%3d|%10.6lf|\n",
+        "%s,%3d,%10.6lf,%3d,%5d,%3d,%10.6lf\n",
         graph_filename, 
         target_color,
         temp_time, 
@@ -153,6 +153,10 @@ int main(int argc, char *argv[]) {
         printf("summary file could not be opened\n");
         return 0;
     }
+    //Ekin updated, added header for summary files
+    fprintf(summary_file,
+        "graph name,target color,k time,k,cost,uncolored,total time\n"
+    );
 
     srand(time(NULL));
 
@@ -173,7 +177,7 @@ int main(int argc, char *argv[]) {
         test_count = atoi(strtok(NULL, " "));
         strcpy(param.graph_filename, strtok(NULL, " "));
         strcpy(param.weight_filename, strtok(NULL, " "));
-        strcpy(param.result_filename, strtok(NULL, " "));
+        strcpy(param.result_filename, strtok(NULL, " \r\n"));
 
         int best_fitness = __INT_MAX__;
         for(;  test_count > 0; test_count--)
