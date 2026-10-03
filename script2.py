@@ -1,3 +1,5 @@
+# use ./python3 script2.py test.summary.csv summary_results.csv
+
 import pandas as pd
 import sys
 
