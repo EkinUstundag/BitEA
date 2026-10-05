@@ -276,11 +276,20 @@ int condition11(int conflict_worst, int weight_worst,int degree_worst, int confl
                      (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
 }
 
-/* vertices degree: vertice bağlı olduğu diğer vertice sayısı
-degree array oluştur
-condition7: minimum weight * weight / (degree * conflict)
-condition8: maximum weight*degree
-condition9: max conflict * degree
+int condition12(int conflict_worst, int weight_worst, int conflict_i, int weight_i,int color_max_weight){
+    
+    int worst_is_driver = (weight_worst == color_max_weight);
+    int i_is_driver = (weight_i == color_max_weight);
+    if (worst_is_driver != i_is_driver)
+        return !i_is_driver; // prefer to evict whichever one ISN'T the driver
+    if (conflict_worst != conflict_i)
+        return conflict_worst < conflict_i;
+    if (weight_worst != weight_i)
+        return weight_worst > weight_i;
+    return rand() % 2;
+}
+
+/*
 eşit olasılık
 */
 
@@ -296,47 +305,43 @@ void fix_conflicts(
     int decision_criteria
 ) {
     block_t (*edges_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])edges;
-    // There is 7 conditions
-    decision_criteria = decision_criteria % 4;
+    // There is  conditions
+    decision_criteria = decision_criteria % 3;
     // Keep removing problematic vertices until all conflicts are gone.
     int i, worst_vert = 0, vert_block;
     block_t vert_mask;
     while(*total_conflicts > 0) {
+
         // Find the vertex with the most conflicts.
         for(i = 0; i < graph_size; i++) {
-
             if (CHECK_COLOR(color, i)){
-                /*
-                if (decision_criteria ==1 && 
-                  condition11(conflict_count[worst_vert],weights[worst_vert],degrees[worst_vert],conflict_count[i], weights[i],degrees[i])){
+                int defaultFlag =1;
+                switch (decision_criteria){
+                    case 1:
+                        if(condition2(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
+                            worst_vert = i;
+                            defaultFlag=0;
+                        }
+                        break;
+                    case 2:
+                        if(condition3(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
+                            worst_vert = i;
+                            defaultFlag=0;
+                        }
+                        break;
+                }
+                if (defaultFlag && (conflict_count[worst_vert] < conflict_count[i] ||
+                    (conflict_count[worst_vert] == conflict_count[i] && 
+                    (weights[worst_vert] > weights[i] || (weights[worst_vert] == weights[i] && rand()%2))))) {
                     worst_vert = i;
-                } else*/
-                 if (decision_criteria == 1 && 
-                  condition2(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
-                        worst_vert = i;
-                    }
-                else if(decision_criteria == 2 && 
-                  condition3(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
-                        worst_vert = i;
-                    }/*
-                else if(decision_criteria == 3 && 
-                  condition11(conflict_count[worst_vert],weights[worst_vert],degrees[worst_vert], conflict_count[i], weights[i],degrees[i])){
-                        worst_vert = i;
-                    }
-                else if(decision_criteria == 5 && 
-                  condition8(conflict_count[worst_vert],weights[worst_vert],degrees[worst_vert], conflict_count[i], weights[i],degrees[i])){
-                        worst_vert = i;
-                    }
-                else if(decision_criteria < 40 && 
-                  condition3(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
-                        worst_vert = i;
-                    }*/
+                }
+                /*
                 // old condition
                 else if ((conflict_count[worst_vert] < conflict_count[i] ||
                  (conflict_count[worst_vert] == conflict_count[i] && 
                   (weights[worst_vert] > weights[i] || (weights[worst_vert] == weights[i] && rand()%2))))) {
                     worst_vert = i;
-                } 
+                }*/
             }
 
         }
