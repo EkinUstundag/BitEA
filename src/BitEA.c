@@ -7,6 +7,28 @@
 #include "stdgraph.h"
 
 
+FILE* debugResults;
+
+int debugPrintFlag = 0;
+void print_Sol(
+    int color_num, 
+    int graph_size, 
+    const block_t *colors
+) {
+    const block_t (*colors_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])colors;
+
+    for(int i = 0; i < color_num; i++){
+        //printf(" color %d: ", i);
+        fprintf(debugResults,"  color %d: ", i);
+        for(int j = 0; j < graph_size; j++)
+            if(CHECK_COLOR((*colors_p)[i], j)) 
+                //printf("%d ", j);
+                fprintf(debugResults,"%d ", j);
+        //printf("\n");
+        fprintf(debugResults,"\n");
+    }
+}
+
 // Global array holding each vertex's degree (edge count).
 // Size is graph_size, allocated/filled at the start of BitEA()
 // and freed before it returns.
@@ -22,13 +44,18 @@ int BitEA(
     block_t *best_solution, 
     int *best_fitness, 
     float *best_solution_time,
-    int *uncolored_num
+    int *uncolored_num,
+    int debugfileCount
 ) {
+    char *strings1 = ".txt";
+    char ret[64];
+    sprintf(ret, "%d%s", debugfileCount, strings1); 
+    debugResults = fopen(ret, "w");
     // Fill the global degree array (one entry per vertex).
-    /**/
+    /*
     degrees = malloc(graph_size * sizeof(int));
     count_edges(graph_size, edges, degrees);
-    
+    */
 
     // Create the random population.
     block_t *population[population_size];
@@ -63,6 +90,10 @@ int BitEA(
     int parent1, parent2, child_colors, temp_fitness;
     int bad_parent;
     for(int i = 0; i < max_gen_num; i++) {
+
+        // Debug Print flag
+        debugPrintFlag = (i == max_gen_num - 1) ? 1 : 0;
+
         if(target_color == 0)
             break;
 
@@ -71,10 +102,15 @@ int BitEA(
 
         // Pick 2 random parents
         parent1 = rand()%population_size;
-        do { parent2 = rand()%population_size; } while (parent2 != parent1);
+        parent2 = parent1;
+        //do { parent2 = rand()%population_size; } while (parent2 != parent1);
+        
+        if(debugPrintFlag)
+            //printf("Parent1 id: %d  Parent2 id: %d",parent1,parent2);
+            fprintf(debugResults,"Parent1 id: %d  Parent2 id: %d\n",parent1,parent2);
 
         // Do a crossover
-        temp_fitness = crossover (
+        temp_fitness = crossover(
             graph_size, 
             edges, 
             weights,
@@ -87,15 +123,23 @@ int BitEA(
             &child_colors,
             &temp_uncolored
         );
-
+        //print child debugPrintFlag
+        //en son child sonucu bastır
+        if(debugPrintFlag){
+            //printf("child after last crossover()\n");
+            fprintf(debugResults,"child after last crossover()\n");
+            print_Sol(child_colors,graph_size,child);
+        }
+            
         // Choose the bad parent.
-        if(fitness[parent1] <= fitness[parent2] && color_count[parent1] <= color_count[parent2])
+        if(fitness[parent1] <  fitness[parent2] && color_count[parent1] <= color_count[parent2])
             bad_parent = parent2;
         else
             bad_parent = parent1;
 
         // Replace the bad parent if needed.
-        if(child_colors <= color_count[bad_parent] && temp_fitness <= fitness[bad_parent]) {
+        //child_colors <= color_count[bad_parent] && temp_fitness <= fitness[bad_parent]
+        if( temp_fitness  < fitness[bad_parent]) {
             memmove(population[bad_parent], child, (TOTAL_BLOCK_NUM(graph_size))*base_color_count*sizeof(block_t));
             color_count[bad_parent] = child_colors;
             fitness[bad_parent] = temp_fitness;
@@ -124,10 +168,10 @@ int BitEA(
     free(child);
     for(int i = 0; i < population_size; i++)
         free(population[i]);
-    /**/
+    /*
     free(degrees);
     degrees = NULL;
-
+*/
     return color_count[best_i];
 }
 
@@ -289,6 +333,17 @@ int condition12(int conflict_worst, int weight_worst, int conflict_i, int weight
     return rand() % 2;
 }
 
+int condition13(int conflict_worst, int weight_worst , int conflict_i, int weight_i ){
+    
+    int mult_worst = weight_worst;
+    int mult_i = weight_i;
+    
+    return (mult_worst > mult_i ||
+                    (mult_worst == mult_i &&
+                     (conflict_worst < conflict_i || 
+                     (conflict_worst == conflict_i && (rand()%2) ) )) ) ;
+}
+
 /*
 eşit olasılık
 */
@@ -301,49 +356,80 @@ void fix_conflicts(
     int *total_conflicts,
     block_t *color,
     block_t *pool,
-    int *pool_total,
-    int decision_criteria
+    int *pool_total
+    //int decision_criteria
 ) {
     block_t (*edges_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])edges;
-    // There is  conditions
-    decision_criteria = decision_criteria % 3;
+    // There is 4 conditions
+    
     // Keep removing problematic vertices until all conflicts are gone.
     int i, worst_vert = 0, vert_block;
     block_t vert_mask;
     while(*total_conflicts > 0) {
-
+        int decision_criteria = rand() % 4;
         // Find the vertex with the most conflicts.
         for(i = 0; i < graph_size; i++) {
             if (CHECK_COLOR(color, i)){
-                int defaultFlag =1;
+                int defaultFlag =0;
+                //hangi decision seçildi printle debugPrintFlag
                 switch (decision_criteria){
                     case 1:
                         if(condition2(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
-                            worst_vert = i;
-                            defaultFlag=0;
+                            worst_vert = i; 
+                            defaultFlag=1;
                         }
                         break;
                     case 2:
                         if(condition3(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
                             worst_vert = i;
-                            defaultFlag=0;
+                            defaultFlag=2;
                         }
                         break;
+                    case 3:
+                        if(condition13(conflict_count[worst_vert],weights[worst_vert], conflict_count[i], weights[i])){
+                            worst_vert = i;
+                            defaultFlag=3;
+                        }
+                        break;                        
                 }
-                if (defaultFlag && (conflict_count[worst_vert] < conflict_count[i] ||
+                if (defaultFlag==0 && (conflict_count[worst_vert] < conflict_count[i] ||
                     (conflict_count[worst_vert] == conflict_count[i] && 
                     (weights[worst_vert] > weights[i] || (weights[worst_vert] == weights[i] && rand()%2))))) {
                     worst_vert = i;
+                    defaultFlag=4;
                 }
                 /*
-                // old condition
-                else if ((conflict_count[worst_vert] < conflict_count[i] ||
+                else if ((conflict_count[worst_vert] < conflict_count[i] || // old condition
                  (conflict_count[worst_vert] == conflict_count[i] && 
                   (weights[worst_vert] > weights[i] || (weights[worst_vert] == weights[i] && rand()%2))))) {
                     worst_vert = i;
                 }*/
-            }
-
+               if(debugPrintFlag){      
+                    switch(defaultFlag){
+                        case 1:
+                            //printf("condition2 is used\n");
+                            fprintf(debugResults," condition2 is used\n");
+                            break;
+                        case 2:
+                            //printf("condition3 is used\n");
+                            fprintf(debugResults," condition3 is used\n");
+                            break;
+                        case 3:
+                            //printf("condition13 is used\n");
+                            fprintf(debugResults," condition13 is used\n");
+                            break;
+                        case 4:
+                            //printf("default condition is used\n");
+                            fprintf(debugResults," default condition is used\n");
+                            break;
+                    }
+                }
+            } 
+        }
+        //print worst_vert debugPrintFlag
+        if(debugPrintFlag){
+            //printf("worst_vert = %d \n",worst_vert);
+            fprintf(debugResults,"  worst_vert = %d \n",worst_vert);
         }
 
         // Update other conflict counters.
@@ -376,6 +462,7 @@ void merge_and_fix(
     int *used_vertex_count
 ) {
     // Merge the two colors
+    // print child_color[i] (which one?)  debugPrintFlag
     int temp_v_count = 0;  
     if(parent_color[0] != NULL && parent_color[1] != NULL)
         for(int i = 0; i < (TOTAL_BLOCK_NUM(graph_size)); i++) {
@@ -399,9 +486,10 @@ void merge_and_fix(
 
     // Merge the pool with the new color
     for(int i = 0; i < (TOTAL_BLOCK_NUM(graph_size)); i++) {
-        child_color[i] |= pool[i];
+        child_color[i] |= pool[i];  //child color printle
         used_vertex_list[i] |= child_color[i];
     }
+
 
     memset(pool, 0, (TOTAL_BLOCK_NUM(graph_size))*sizeof(block_t));
     (*pool_count) = 0;
@@ -411,16 +499,30 @@ void merge_and_fix(
     int conflict_count[graph_size];
     memset(conflict_count, 0, graph_size*sizeof(int));
 
-    // Count conflicts.
+    // Count conflicts. 
     int total_conflicts = count_conflicts(
         graph_size,
         child_color,
         edges,
         conflict_count
     );
-
-    //
-    int decision_criteria = rand();
+    //print conflict_count debugPrintFlag
+    if(debugPrintFlag){
+        
+        fprintf(debugResults,"Merged Colors:\n");
+        print_Sol(15,graph_size,child_color);
+        
+        //printf("total_conflicts = %d conflict_count: ",total_conflicts);
+        fprintf(debugResults,"total_conflicts = %d conflict_count: ",total_conflicts);
+        for(int index=0;index < graph_size;index++){
+            //printf("%d ",conflict_count[index]);
+            fprintf(debugResults,"%d ",conflict_count[index]);
+        }
+        //printf("\n");
+        fprintf(debugResults,"\n");
+    }
+    
+    //int decision_criteria = rand();
 
     // Fix the conflicts.
     fix_conflicts(
@@ -431,8 +533,8 @@ void merge_and_fix(
         &total_conflicts,
         child_color,
         pool,
-        pool_count,
-        decision_criteria
+        pool_count
+        //decision_criteria
     );
 }
 
@@ -579,6 +681,16 @@ int crossover (
     int *child_color_count,
     int *uncolored
 ) {
+    //parentlar debugPrintFlag
+    if(debugPrintFlag){
+        //printf("Parent1:\n");
+        fprintf(debugResults," Parent1:\n");
+        print_Sol(color_num1,graph_size,parent1);
+        //printf("Parent2:\n");
+        fprintf(debugResults," Parent2:\n");
+        print_Sol(color_num2,graph_size,parent2);        
+    }
+
     const block_t (*parent1_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])parent1;
     const block_t (*parent2_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])parent2;
     block_t (*child_p)[][TOTAL_BLOCK_NUM(graph_size)] = (block_t (*)[][TOTAL_BLOCK_NUM(graph_size)])child;
@@ -600,18 +712,25 @@ int crossover (
     memset(pool, 0, (TOTAL_BLOCK_NUM(graph_size))*sizeof(block_t));
     int pool_count = 0;
 
-
     int color1, color2, last_color = 0;
     int i, j;
     const block_t *chosen_parent_colors[2];
     for(i = 0; i < target_color_count; i++) {
         // The child still has vertices that weren't used.
         if(used_vertex_count < graph_size) {
-            // Pick 2 random colors.
+            // Pick 2 random colors. 
             color1 = get_rand_color(color_num1, i, used_color_list[0]);
             color2 = get_rand_color(color_num2, i, used_color_list[1]);
+            // print color1 & 2 debugPrintFlag
+            if(debugPrintFlag){
+                fprintf(debugResults,"color1 = %d color2 = %d\n",color1,color2);
+                //printf("color1 = %d color2 = %d\n",color1,color2);
+                //fprintf(debugResults,"Before merge_and_fix()\n");
+                //print_Sol(target_color_count,graph_size,);
+            }
+
             chosen_parent_colors[0] = color1 == -1 ? NULL : (*parent1_p)[color1];
-            chosen_parent_colors[1] = color2 == -1 ? NULL : (*parent2_p)[color2];
+            chosen_parent_colors[1] = color2 == -1 ? NULL : (*parent2_p)[color2];        
 
             merge_and_fix(
                 graph_size,
@@ -624,6 +743,19 @@ int crossover (
                 used_vertex_list,
                 &used_vertex_count
             );
+
+            //printDebugFlag
+            if(debugPrintFlag){
+                fprintf(debugResults,"After merge_and_fix()\n");
+                print_Sol(target_color_count,graph_size,child);
+                fprintf(debugResults,"There are %d elements in pool:\n",pool_count);
+                for(int z = 0; z < graph_size; z++){
+                    if(CHECK_COLOR(pool, z))
+                        fprintf(debugResults," %d ", z);
+                }
+                fprintf(debugResults,"\n");
+            }
+                
 
         // If all of the vertices were used and the pool is empty, exit the loop.
         } else if(pool_count == 0) {
@@ -639,6 +771,11 @@ int crossover (
             pool,
             &pool_count
         );
+        if(debugPrintFlag){
+            fprintf(debugResults,"After search_back()\n");
+            print_Sol(target_color_count,graph_size,child);
+        }
+
     }
 
     // Record the last color.
