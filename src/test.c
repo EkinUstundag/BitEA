@@ -31,7 +31,7 @@ struct test_param {
 };
 
 
-void test_graph(void *param, int *best_result) {
+void test_graph(void *param, int *best_result,int test_count) {
     int size = ((struct test_param*)param)->size;
     int iteration_count = ((struct test_param*)param)->iteration_count;
     int target_color = ((struct test_param*)param)->target_color;
@@ -84,7 +84,8 @@ void test_graph(void *param, int *best_result) {
         temp_colors,
         &temp_fitness,
         &temp_time,
-        &temp_uncolored
+        &temp_uncolored,
+        test_count
     );
     gettimeofday(&t2, NULL);
     total_execution_time += (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000000.0;
@@ -181,7 +182,7 @@ int main(int argc, char *argv[]) {
 
         int best_fitness = __INT_MAX__;
         for(;  test_count > 0; test_count--)
-            test_graph(&param, &best_fitness);
+            test_graph(&param, &best_fitness,test_count);
     }
 
     fclose(test_list_file);
