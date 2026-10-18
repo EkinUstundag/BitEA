@@ -4,7 +4,7 @@
 
 #include "stdgraph.h"
 
-
+extern int *degrees;
 /**
  * @brief Color a graph using BitEA algorithm.
  * 
@@ -29,7 +29,8 @@ int BitEA(
     block_t *best_solution, 
     int *best_fitness, 
     float *best_solution_time,
-    int *uncolored_num
+    int *uncolored_num,
+    int debugFileCount
 );
 
 
@@ -93,6 +94,7 @@ void fix_conflicts(
     block_t *color,
     block_t *pool,
     int *pool_total
+    //int decision_criteria
 );
 
 
