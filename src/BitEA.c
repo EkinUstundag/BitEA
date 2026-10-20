@@ -164,6 +164,12 @@ int BitEA(
     *uncolored_num = uncolored[best_i];
     memcpy(best_solution, population[best_i], base_color_count * (TOTAL_BLOCK_NUM(graph_size)) * sizeof(block_t));
 
+    if(debugPrintFlag){
+    //printf("Parent1 id: %d  Parent2 id: %d",parent1,parent2);
+        fprintf(debugResults,"best_fitness: %d, Best among the population: \n",*best_fitness);
+        print_Sol(color_count[best_i],graph_size,population[best_i]);     
+    }
+
     // Free allocated space.
     free(child);
     for(int i = 0; i < population_size; i++)
