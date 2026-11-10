@@ -67,6 +67,8 @@ void test_graph(void *param, int *best_result,int test_count) {
             max_edge_count = edge_count[i];
 
     float temp_time;
+    float temp_iteration_time;
+    int temp_best_iteration;
     int temp_fitness, temp_color_count, temp_uncolored;
     block_t *temp_colors = calloc(target_color, TOTAL_BLOCK_NUM(size)*sizeof(block_t));
 
@@ -85,19 +87,22 @@ void test_graph(void *param, int *best_result,int test_count) {
         &temp_fitness,
         &temp_time,
         &temp_uncolored,
-        test_count
+        &temp_best_iteration,
+        &temp_iteration_time
     );
     gettimeofday(&t2, NULL);
-    total_execution_time += (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000000.0;
-// Weighted Coloring fitness can not be 0 this should be changed
+    //total_execution_time += (t2.tv_sec - t1.tv_sec) + (t2.tv_usec - t1.tv_usec) / 1000000.0;
+    total_execution_time = temp_iteration_time;
+    // Weighted Coloring fitness can not be 0 this should be changed
     //if(temp_fitness == 0)
         is_valid(size, edges, temp_color_count, temp_colors);
 
     printf(
-        "|%s|%3d|%10.6lf|%3d|%5d|%3d|%10.6lf|\n",
+        "|%s|%3d|%10.6lf|%d|%3d|%5d|%3d|%10.6lf|\n",
         graph_filename, 
         target_color,
-        temp_time, 
+        temp_time,
+        temp_best_iteration, 
         temp_color_count,
         temp_fitness,
         temp_uncolored,
@@ -105,10 +110,11 @@ void test_graph(void *param, int *best_result,int test_count) {
     );
 //Ekin updated to csv format
     fprintf(((struct test_param*)param)->summary_file,
-        "%s,%3d,%10.6lf,%3d,%5d,%3d,%10.6lf\n",
+        "%s,%3d,%10.6lf,%d,%3d,%5d,%3d,%10.6lf\n",
         graph_filename, 
         target_color,
-        temp_time, 
+        temp_time,
+        temp_best_iteration, 
         temp_color_count,
         temp_fitness,
         temp_uncolored,
@@ -120,10 +126,11 @@ void test_graph(void *param, int *best_result,int test_count) {
 
         char buffer[512];
         sprintf(buffer,
-            "|  graph name   | target color | k time | k | cost | uncolored | total time |\n|%s|%3d|%10.6lf|%3d|%5d|%3d|%10.6lf|\n",
+            "|  graph name   | target color | k time | k iteration  | k | cost | uncolored | total time |\n",
             graph_filename, 
             target_color,
-            temp_time, 
+            temp_time,
+            temp_best_iteration, 
             temp_color_count,
             temp_fitness,
             temp_uncolored,
@@ -156,13 +163,13 @@ int main(int argc, char *argv[]) {
     }
     //Ekin updated, added header for summary files
     fprintf(summary_file,
-        "graph name,target color,k time,k,cost,uncolored,total time\n"
+        "graph name,target color,k time,k iteration,k,cost,uncolored,total time\n"
     );
 
     srand(time(NULL));
 
 
-    printf("|  graph name   | target color | k time | k | cost | uncolored | total time |\n");
+    printf("|  graph name   | target color | k time | k iteration  | k | cost | uncolored | total time |\n");
 
     char buffer[512];
     struct test_param param;
